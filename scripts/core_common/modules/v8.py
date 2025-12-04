@@ -33,7 +33,6 @@ def clean():
 def is_main_platform():
   """
   判断当前 configure 的 platform 是否需要走 v8 主流程。
-  注意：这里仍然只识别 win/linux/mac，linux_arm64 会被当成 linux_64 使用。
   """
   if (config.check_option("platform", "win_64") or
       config.check_option("platform", "win_32")):
@@ -54,9 +53,6 @@ def is_main_platform():
 
 
 def is_use_clang():
-  """
-  官方脚本逻辑：在不使用 sysroot，且 gcc >= 6 或手动设置 use-clang=1 的时候启用 clang。
-  """
   gcc_version = base.get_gcc_version()
   is_clang = "false"
   if config.option("sysroot") == "" and (
@@ -68,75 +64,98 @@ def is_use_clang():
 
 
 def make_xp():
-  """
-  非主平台时的占位逻辑（XP 之类老平台）。
-  目前我们只关心 Linux/ARM64，这里保持空实现即可。
-  """
   print("make_xp() is not implemented in this simplified v8.py")
   return
 
 
+def _find_v8_root(v8_parent):
+  """
+  在 v8_parent（例如 /home/core/Common/3dParty/v8）下找第一个包含 .gn 的目录。
+  优先检查：
+    v8_xp/v8, v8_xp/v8/v8, v8, v8/v8
+  """
+  candidates = []
+
+  xp_dir = os.path.join(v8_parent, "v8_xp")
+  if os.path.isdir(xp_dir):
+    candidates.append(os.path.join(xp_dir, "v8"))
+    candidates.append(os.path.join(xp_dir, "v8", "v8"))
+
+  v8_dir = os.path.join(v8_parent, "v8")
+  if os.path.isdir(v8_dir):
+    candidates.append(v8_dir)
+    candidates.append(os.path.join(v8_dir, "v8"))
+
+  # 兜底：从顶层往下扫一层
+  candidates.append(v8_parent)
+
+  for c in candidates:
+    if c and os.path.isfile(os.path.join(c, ".gn")):
+      return c
+
+  return None
+
+
 def make():
-  # 如果不是主平台，直接走占位逻辑
   if not is_main_platform():
     make_xp()
     return
 
-  # 记录当前环境，方便恢复
   old_env = dict(os.environ)
   old_cur = os.getcwd()
 
-  # ONLYOFFICE 源码中 v8 根目录位置（父目录）
-  base_dir = base.get_script_dir() + "/../../core/Common/3dParty/v8/v8_xp"
-  if not base.is_dir(base_dir):
-    base_dir = base.get_script_dir() + "/../../core/Common/3dParty/v8/v8"
+  # === 关键：以 core/Common/3dParty/v8 为根，而不是死写 v8_xp ===
+  script_dir = base.get_script_dir()  # 比如 /home/build_tools_arm64/scripts
+  v8_parent = os.path.abspath(os.path.join(
+      script_dir, "../../core/Common/3dParty/v8"))
 
-  os.chdir(base_dir)
+  # 这个目录下应该有 v8_xp/ 或 v8/
+  if not os.path.isdir(v8_parent):
+    print("ERROR: v8 parent dir not found:", v8_parent)
+    os.chdir(old_cur)
+    os.environ.clear()
+    os.environ.update(old_env)
+    return
 
-  # Windows 环境变量
+  os.chdir(v8_parent)
+
+  # Windows 环境
   if base.host_platform() == "windows":
     base.set_env("DEPOT_TOOLS_WIN_TOOLCHAIN", "0")
     base.set_env("GYP_MSVS_VERSION", "2015")
 
-  # 检查版本号，必要时执行 clean()
+  # 检查版本号，必要时 clean（针对当前 v8_parent）
   base.common_check_version("v8", "1", clean)
 
   # ---------------------------------------------------------------------------
-  # 准备 depot_tools
+  # 准备 depot_tools（放在 v8_parent/depot_tools）
   # ---------------------------------------------------------------------------
-  if not base.is_dir("depot_tools"):
+  depot_dir = os.path.join(v8_parent, "depot_tools")
+  if not base.is_dir(depot_dir):
     base.cmd("git", [
       "clone",
-      "https://chromium.googlesource.com/chromium/tools/depot_tools.git"
+      "https://chromium.googlesource.com/chromium/tools/depot_tools.git",
+      "depot_tools"
     ])
-    # ONLYOFFICE 自己的 bootstrap hack
     v8_89.change_bootstrap()
 
-    # Windows 下修正 cipd 架构
     if base.host_platform() == "windows":
-      if base.is_file("depot_tools/cipd.ps1"):
-        base.replaceInFile("depot_tools/cipd.ps1",
-                           "windows-386",
-                           "windows-amd64")
+      ps1 = os.path.join(depot_dir, "cipd.ps1")
+      if base.is_file(ps1):
+        base.replaceInFile(ps1, "windows-386", "windows-amd64")
 
-  # 配置 PATH，优先使用本地 depot_tools 和自带 python2
   path_to_python2 = "/depot_tools/bootstrap-2@3_11_8_chromium_35_bin/python/bin"
   os.environ["PATH"] = os.pathsep.join([
-    base_dir + "/depot_tools",
-    base_dir + path_to_python2,
+    depot_dir,
+    v8_parent + path_to_python2,
     config.option("vs-path") + "/../Common7/IDE",
     os.environ.get("PATH", "")
   ])
 
-  # 统一 GN 调用方式：
-  # 优先用 python3 执行 depot_tools/gn.py（不会再走 python3_bin_reldir 检查）
-  gn_py = os.path.join(base_dir, "depot_tools", "gn.py")
+  # GN 封装：优先用 python3 执行 depot_tools/gn.py
+  gn_py = os.path.join(depot_dir, "gn.py")
 
   def run_gn(args_list):
-    """
-    - 如果存在 gn.py：使用系统 python3 直接执行它；
-    - 否则：退回到 PATH 里的 gn。
-    """
     if os.path.isfile(gn_py):
       print("using python3 gn.py:", gn_py)
       base.cmd2("python3", [gn_py] + args_list)
@@ -145,34 +164,23 @@ def make():
       base.cmd2("gn", args_list)
 
   # ---------------------------------------------------------------------------
-  # fetch v8 源码
+  # fetch v8 源码（放在 v8_parent/v8）
   # ---------------------------------------------------------------------------
-  if not base.is_dir("v8"):
-    # ONLYOFFICE 使用的 v8 版本 4.10.253
-    base.cmd("./depot_tools/fetch", ["v8"], True)
-    base.cmd("./depot_tools/gclient",
+  v8_dir = os.path.join(v8_parent, "v8")
+  if not base.is_dir(v8_dir):
+    base.cmd(os.path.join(depot_dir, "fetch"), ["v8"], True)
+    base.cmd(os.path.join(depot_dir, "gclient"),
              ["sync", "-r", "4.10.253"], True)
-    base.delete_dir_with_access_error("v8/buildtools/win")
+    base.delete_dir_with_access_error(os.path.join(v8_dir, "buildtools", "win"))
     base.cmd("git", ["config", "--system", "core.longpaths", "true"], True)
     base.cmd("gclient", ["sync", "--force"], True)
 
   # ---------------------------------------------------------------------------
   # 找到真正的 V8 源码根目录（包含 .gn 的目录）
   # ---------------------------------------------------------------------------
-  v8_root = None
-  candidates = [
-    os.path.join(base_dir, "v8"),
-    os.path.join(base_dir, "v8", "v8"),
-    base_dir,
-  ]
-  for c in candidates:
-    if os.path.isfile(os.path.join(c, ".gn")):
-      v8_root = c
-      break
-
+  v8_root = _find_v8_root(v8_parent)
   if v8_root is None:
-    print("ERROR: cannot find .gn under", base_dir)
-    # 恢复环境后退出
+    print("ERROR: cannot find .gn under", v8_parent)
     os.chdir(old_cur)
     os.environ.clear()
     os.environ.update(old_env)
@@ -215,7 +223,6 @@ def make():
   # Linux 平台
   # ---------------------------------------------------------------------------
   if config.check_option("platform", "linux_64"):
-    # 关键：在 ARM64 机器上，即使 platform=linux_64，也强行用 ARM64 配置
     if host_arch in ("aarch64", "arm64"):
       print("Detected ARM64 host, building V8 as arm64 (out.gn/linux_arm64)")
       gn_args = (
@@ -247,7 +254,6 @@ def make():
     run_gn(["gen", "out.gn/linux_32", "--args='" + gn_args + "'"])
     base.cmd("ninja", ["-C", "out.gn/linux_32"])
 
-  # 预留：如果以后你真的把 configure 改出 linux_arm64 平台，也能直接用
   if config.check_option("platform", "linux_arm64"):
     gn_args = (
       "is_debug=false "
@@ -259,16 +265,13 @@ def make():
     base.cmd("ninja", ["-C", "out.gn/linux_arm64"])
 
   # ---------------------------------------------------------------------------
-  # macOS x64
+  # macOS / Windows（基本保持原逻辑，顺手也改成 run_gn）
   # ---------------------------------------------------------------------------
   if config.check_option("platform", "mac_64"):
     gn_args = "is_debug=false " + base_args64
     run_gn(["gen", "out.gn/mac_64", "--args='" + gn_args + "'"])
     base.cmd("ninja", ["-C", "out.gn/mac_64"])
 
-  # ---------------------------------------------------------------------------
-  # Windows（简化版）
-  # ---------------------------------------------------------------------------
   if config.check_option("platform", "win_64"):
     if -1 != config.option("config").lower().find("debug"):
       gn_args = "is_debug=true " + base_args64 + " is_clang=false"
