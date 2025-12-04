@@ -86,7 +86,7 @@ def make():
   old_env = dict(os.environ)
   old_cur = os.getcwd()
 
-  # ONLYOFFICE 源码中 v8 根目录位置
+  # ONLYOFFICE 源码中 v8 根目录位置（父目录）
   base_dir = base.get_script_dir() + "/../../core/Common/3dParty/v8/v8_xp"
   if not base.is_dir(base_dir):
     base_dir = base.get_script_dir() + "/../../core/Common/3dParty/v8/v8"
@@ -128,19 +128,17 @@ def make():
     os.environ.get("PATH", "")
   ])
 
-  # 这里定义我们自己的 GN 调用方式：
-  # 优先用 python3 执行 depot_tools/gn.py，如果没有 gn.py 再退回到 PATH 里的 gn。
+  # 统一 GN 调用方式：
+  # 优先用 python3 执行 depot_tools/gn.py（不会再走 python3_bin_reldir 检查）
   gn_py = os.path.join(base_dir, "depot_tools", "gn.py")
 
   def run_gn(args_list):
     """
-    统一的 gn 调用封装：
-    - 如果存在 gn.py：使用系统 python3 直接执行它（不走 depot_tools 的 python3_bin_reldir 检查）
-    - 否则：退回到原来的 'gn' 命令
+    - 如果存在 gn.py：使用系统 python3 直接执行它；
+    - 否则：退回到 PATH 里的 gn。
     """
     if os.path.isfile(gn_py):
       print("using python3 gn.py:", gn_py)
-      # base.cmd2 会自己把列表 join 成命令行字符串，这里直接传列表即可
       base.cmd2("python3", [gn_py] + args_list)
     else:
       print("gn.py not found, fallback to 'gn' in PATH")
@@ -158,8 +156,30 @@ def make():
     base.cmd("git", ["config", "--system", "core.longpaths", "true"], True)
     base.cmd("gclient", ["sync", "--force"], True)
 
-  # 进入 v8 源码目录
-  os.chdir("v8")
+  # ---------------------------------------------------------------------------
+  # 找到真正的 V8 源码根目录（包含 .gn 的目录）
+  # ---------------------------------------------------------------------------
+  v8_root = None
+  candidates = [
+    os.path.join(base_dir, "v8"),
+    os.path.join(base_dir, "v8", "v8"),
+    base_dir,
+  ]
+  for c in candidates:
+    if os.path.isfile(os.path.join(c, ".gn")):
+      v8_root = c
+      break
+
+  if v8_root is None:
+    print("ERROR: cannot find .gn under", base_dir)
+    # 恢复环境后退出
+    os.chdir(old_cur)
+    os.environ.clear()
+    os.environ.update(old_env)
+    return
+
+  print("V8 root dir:", v8_root)
+  os.chdir(v8_root)
 
   # ---------------------------------------------------------------------------
   # 不同架构的 GN 参数
@@ -204,7 +224,6 @@ def make():
         + " is_clang=" + is_use_clang()
         + " use_sysroot=false treat_warnings_as_errors=false"
       )
-      # 这里一定要在 --args= 外面再包一层单引号，防止被 shell 拆成多个参数
       run_gn(["gen", "out.gn/linux_arm64", "--args='" + gn_args + "'"])
       base.cmd("ninja", ["-C", "out.gn/linux_arm64"])
     else:
