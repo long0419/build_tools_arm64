@@ -140,6 +140,7 @@ def make():
     """
     if os.path.isfile(gn_py):
       print("using python3 gn.py:", gn_py)
+      # base.cmd2 会自己把列表 join 成命令行字符串，这里直接传列表即可
       base.cmd2("python3", [gn_py] + args_list)
     else:
       print("gn.py not found, fallback to 'gn' in PATH")
@@ -203,7 +204,8 @@ def make():
         + " is_clang=" + is_use_clang()
         + " use_sysroot=false treat_warnings_as_errors=false"
       )
-      run_gn(["gen", "out.gn/linux_arm64", "--args=" + gn_args])
+      # 这里一定要在 --args= 外面再包一层单引号，防止被 shell 拆成多个参数
+      run_gn(["gen", "out.gn/linux_arm64", "--args='" + gn_args + "'"])
       base.cmd("ninja", ["-C", "out.gn/linux_arm64"])
     else:
       print("Detected x86_64 host, building V8 as x64 (out.gn/linux_64)")
@@ -213,7 +215,7 @@ def make():
         + " is_clang=" + is_use_clang()
         + " use_sysroot=false treat_warnings_as_errors=false"
       )
-      run_gn(["gen", "out.gn/linux_64", "--args=" + gn_args])
+      run_gn(["gen", "out.gn/linux_64", "--args='" + gn_args + "'"])
       base.cmd("ninja", ["-C", "out.gn/linux_64"])
 
   if config.check_option("platform", "linux_32"):
@@ -223,7 +225,7 @@ def make():
       + " is_clang=" + is_use_clang()
       + " use_sysroot=false treat_warnings_as_errors=false"
     )
-    run_gn(["gen", "out.gn/linux_32", "--args=" + gn_args])
+    run_gn(["gen", "out.gn/linux_32", "--args='" + gn_args + "'"])
     base.cmd("ninja", ["-C", "out.gn/linux_32"])
 
   # 预留：如果以后你真的把 configure 改出 linux_arm64 平台，也能直接用
@@ -234,7 +236,7 @@ def make():
       + " is_clang=" + is_use_clang()
       + " use_sysroot=false treat_warnings_as_errors=false"
     )
-    run_gn(["gen", "out.gn/linux_arm64", "--args=" + gn_args])
+    run_gn(["gen", "out.gn/linux_arm64", "--args='" + gn_args + "'"])
     base.cmd("ninja", ["-C", "out.gn/linux_arm64"])
 
   # ---------------------------------------------------------------------------
@@ -242,7 +244,7 @@ def make():
   # ---------------------------------------------------------------------------
   if config.check_option("platform", "mac_64"):
     gn_args = "is_debug=false " + base_args64
-    run_gn(["gen", "out.gn/mac_64", "--args=" + gn_args])
+    run_gn(["gen", "out.gn/mac_64", "--args='" + gn_args + "'"])
     base.cmd("ninja", ["-C", "out.gn/mac_64"])
 
   # ---------------------------------------------------------------------------
@@ -251,21 +253,21 @@ def make():
   if config.check_option("platform", "win_64"):
     if -1 != config.option("config").lower().find("debug"):
       gn_args = "is_debug=true " + base_args64 + " is_clang=false"
-      run_gn(["gen", "out.gn/win_64/debug", "--args=" + gn_args])
+      run_gn(["gen", "out.gn/win_64/debug", "--args='" + gn_args + "'"])
       base.cmd("ninja", ["-C", "out.gn/win_64/debug"])
 
     gn_args = "is_debug=false " + base_args64 + " is_clang=false"
-    run_gn(["gen", "out.gn/win_64/release", "--args=" + gn_args])
+    run_gn(["gen", "out.gn/win_64/release", "--args='" + gn_args + "'"])
     base.cmd("ninja", ["-C", "out.gn/win_64/release"])
 
   if config.check_option("platform", "win_32"):
     if -1 != config.option("config").lower().find("debug"):
       gn_args = "is_debug=true " + base_args32 + " is_clang=false"
-      run_gn(["gen", "out.gn/win_32/debug", "--args=" + gn_args])
+      run_gn(["gen", "out.gn/win_32/debug", "--args='" + gn_args + "'"])
       base.cmd("ninja", ["-C", "out.gn/win_32/debug"])
 
     gn_args = "is_debug=false " + base_args32 + " is_clang=false"
-    run_gn(["gen", "out.gn/win_32/release", "--args=" + gn_args])
+    run_gn(["gen", "out.gn/win_32/release", "--args='" + gn_args + "'"])
     base.cmd("ninja", ["-C", "out.gn/win_32/release"])
 
   # 恢复环境
