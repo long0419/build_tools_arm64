@@ -170,7 +170,19 @@ def delete_file(path):
   return os.remove(get_path(path))
 
 def delete_exe(path):
-  return os.remove(get_path(path) + (".exe" if "windows" == host_platform() else ""))
+  # 在 Windows 上加上 .exe，其它平台直接用原路径
+  exe_path = path + (".exe" if host_platform() == "windows" else "")
+  exe_path = get_path(exe_path)
+
+  try:
+    os.remove(exe_path)
+  except FileNotFoundError:
+    # 要删的文件本来就没有，忽略即可，不能让整个构建失败
+    return
+  except OSError:
+    # 其它错误（权限等）打印个 warning，但不要中断构建
+    print("warning: failed to delete exe:", exe_path)
+
 
 def find_file(path, pattern):
   for root, dirnames, filenames in os.walk(path):
