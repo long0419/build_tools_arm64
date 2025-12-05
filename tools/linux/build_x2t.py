@@ -1,36 +1,33 @@
 #!/usr/bin/env python3
-import os
 import subprocess
-import sys
+from pathlib import Path
 
-ROOT = "/home/core"
-BUILD_TOOLS = "/home/build_tools_arm64"
 
-def run(cmd, cwd=None):
+# 仓库根目录：/home/build_tools_arm64
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def run(cmd: str, cwd: Path | None = None) -> None:
+    if cwd is None:
+        cwd = ROOT
     print("+", cmd)
-    subprocess.check_call(cmd, shell=True, cwd=cwd)
+    subprocess.check_call(cmd, shell=True, cwd=str(cwd))
 
-def main():
-    print("=== 极简构建 ONLYOFFICE x2t converter (Linux ARM64) ===")
 
-    # 1) 进入 build_tools 的 linux 工具目录
-    os.chdir(f"{BUILD_TOOLS}/tools/linux")
+def main() -> None:
+    print("=== 极简构建 ONLYOFFICE core / x2t (Linux ARM64) ===")
 
-    # 2) 只构建必要的 3dParty 库（qt 不需要）
-    print("\n=== 构建必要 3dParty ===")
-    run("python3 make.py icu")
-    run("python3 make.py openssl")
-    run("python3 make.py harfbuzz")
-    run("python3 make.py brotli")
-    run("python3 make.py heif")
+    # 这里假定 config.py 已经写好：
+    #   module = "core"
+    #   platform = "linux_arm64"
+    #
+    # 不再传 core / icu 等位置参数，避免 argparse 报错
+    print("\n=== 调用根目录 make.py，按配置构建 core（包含 x2t） ===")
+    run("python3 make.py")
 
-    # 3) 构建 core/server（包含 x2t）
-    print("\n=== 构建 core/server ===")
-    run("python3 make.py core")
+    print("\n=== 构建完成（如果 make.py 成功执行）===")
+    print("x2t 通常会在：/home/core/build/bin/linux_arm64/x2t")
 
-    print("\n=== 完成！可执行文件通常在： ===")
-    print("/home/core/build/bin/linux_arm64/x2t")
-    print("====================================")
 
 if __name__ == "__main__":
     main()
