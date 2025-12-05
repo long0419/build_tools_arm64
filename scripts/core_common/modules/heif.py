@@ -314,7 +314,9 @@ def make_heif(base_dir, build_type):
   cmake_dir = base_dir + "/libheif"
   cmake_args = [
     cmake_dir,
-    "--preset=release-noplugins",                     # preset to disable plugins system
+    # 原来这里有一个 "--preset=release-noplugins"，会被错误拼进路径
+    # 导致 CMake 认为源目录是 build/.../release/--preset=release-noplugins
+    # 这里我们直接去掉 preset，改用下面的一堆 -D 选项来禁用插件和共享库。
     "-DCMAKE_BUILD_TYPE=" + build_type,
     "-DBUILD_SHARED_LIBS=OFF",                        # do not build shared libs
     "-DWITH_LIBSHARPYUV=OFF",                         # do not build libsharpyuv (for RGB <--> YUV color space conversions)
