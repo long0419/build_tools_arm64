@@ -1,32 +1,42 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import os
 import subprocess
-from pathlib import Path
+import sys
+
+# build_tools 根目录：tools/linux/../.. -> /home/build_tools_arm64
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+# core 源码根目录（按你现在的路径）
+CORE_DIR = os.environ.get("ONLYOFFICE_CORE_DIR", "/home/core")
+X2T_PATH = os.path.join(CORE_DIR, "build", "bin", "linux_arm64", "x2t")
 
 
-# 仓库根目录：/home/build_tools_arm64
-ROOT = Path(__file__).resolve().parents[2]
-
-
-def run(cmd: str, cwd: Path | None = None) -> None:
-    if cwd is None:
-        cwd = ROOT
+def run(cmd, cwd=None):
     print("+", cmd)
-    subprocess.check_call(cmd, shell=True, cwd=str(cwd))
+    subprocess.check_call(cmd, shell=True, cwd=cwd)
 
 
-def main() -> None:
-    print("=== 极简构建 ONLYOFFICE core / x2t (Linux ARM64) ===")
+def main():
+    print("=== 极简构建 ONLYOFFICE x2t converter (Linux ARM64) ===")
 
-    # 这里假定 config.py 已经写好：
-    #   module = "core"
-    #   platform = "linux_arm64"
-    #
-    # 不再传 core / icu 等位置参数，避免 argparse 报错
-    print("\n=== 调用根目录 make.py，按配置构建 core（包含 x2t） ===")
-    run("python3 make.py")
+    print("\n=== 1. 调用官方 make.py（按当前 configure 配置构建） ===")
+    print("工作目录:", ROOT_DIR)
+    # 这里不再传 icu / heif 之类的参数，直接跑官方 make.py
+    run("python3 make.py", cwd=ROOT_DIR)
 
-    print("\n=== 构建完成（如果 make.py 成功执行）===")
-    print("x2t 通常会在：/home/core/build/bin/linux_arm64/x2t")
+    print("\n=== 2. 检查 x2t 是否生成 ===")
+    if os.path.isfile(X2T_PATH):
+        print("✅ x2t 已生成：", X2T_PATH)
+        sys.exit(0)
+    else:
+        print("❌ 构建结束，但没有找到 x2t：", X2T_PATH)
+        print("大概率是 core/x2t 在编译阶段报错了，日志被淹没了。")
+        print("建议在 /home/core 下面 grep 一下编译日志：")
+        print("  cd /home/core")
+        print("  grep -n \"x2t\" -R build 2>/dev/null | head")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
